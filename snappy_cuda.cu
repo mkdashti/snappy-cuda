@@ -109,6 +109,7 @@ int main(int argc, char **argv)
 	int block_size = 32 * 1024; // Default is 32KB
     char * input_file = NULL;
     char * output_file = NULL;
+    const char * default_output_file = "output.txt";
 	struct host_buffer_context input;
 	struct host_buffer_context output;
 
@@ -161,7 +162,7 @@ int main(int argc, char **argv)
 
 	// If no output file was provided, use a default file
 	if (output_file == NULL) {
-		output_file = "output.txt";
+		output_file = (char *)default_output_file;
 	}
 	output.file_name = output_file;
 	printf("Using output file %s\n", output_file);
@@ -176,7 +177,7 @@ int main(int argc, char **argv)
 
 		if (use_cuda)
 		{
-			status = snappy_compress_dpu(&input, &output, block_size, &runtime);
+			status = snappy_compress_cuda(&input, &output, block_size, &runtime);
 		}
 		else
 		{
@@ -196,7 +197,7 @@ int main(int argc, char **argv)
 
 		if (use_cuda)
 		{
-			status = snappy_decompress_dpu(&input, &output, &runtime);
+			status = snappy_decompress_cuda(&input, &output, &runtime);
 		}
 		else
 		{

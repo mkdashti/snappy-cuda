@@ -26,7 +26,7 @@ void setup_compression(struct host_buffer_context *input, struct host_buffer_con
 snappy_status snappy_compress_host(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size);
 
 /**
- * Perform the Snappy compression on the DPU.
+ * Perform the Snappy compression on the GPU.
  *
  * @param input: holds input buffer information
  * @param output: holds output buffer information
@@ -34,7 +34,7 @@ snappy_status snappy_compress_host(struct host_buffer_context *input, struct hos
  * @param runtime: struct holding break down of runtimes for different parts of the program
  * @return SNAPPY_OK if successful, error code otherwise
  */
-snappy_status snappy_compress_dpu(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size, struct program_runtime *runtime);
+snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size, struct program_runtime *runtime);
 
 
 #endif /* _SNAPPY_COMPRESSION_H_ */

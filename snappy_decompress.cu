@@ -194,12 +194,14 @@ snappy_status setup_decompression(struct host_buffer_context *input, struct host
 
 	// Check that uncompressed length is within the max we can store
 	if (dlength > output->max) {
-		fprintf(stderr, "Output length is to big: max=%ld len=%d\n", output->max, dlength);
+		fprintf(stderr, "Output length is too big: max=%ld len=%d\n", output->max, dlength);
 		return SNAPPY_BUFFER_TOO_SMALL;
 	}
 
 	// Allocate output buffer
+    //printf("dlength, aligned, aligned | bitmasked %d %d %d\n",dlength, ALIGN(dlength,8), ALIGN(dlength, 8) | BITMASK(11));
 	output->buffer = (uint8_t *)malloc(ALIGN(dlength, 8) | BITMASK(11));
+	//output->buffer = (uint8_t *)malloc(ALIGN(dlength, 8));
 	output->curr = output->buffer;
 	output->length = dlength;
 
@@ -284,7 +286,7 @@ snappy_status snappy_decompress_host(struct host_buffer_context *input, struct h
 }
 
 
-snappy_status snappy_decompress_dpu(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime)
+snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime)
 {
 	struct timeval start;
 	struct timeval end;

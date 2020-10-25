@@ -1,11 +1,8 @@
-#ifndef _DPU_SNAPPY_H_
-#define _DPU_SNAPPY_H_
+#ifndef _SNAPPY_CUDA_H_
+#define _SNAPPY_CUDA_H_
 
 #include "common.h"
 #include <sys/time.h>
-
-// Comment out to load data for each DPU individually
-#define BULK_XFER
 
 #define GET_ELEMENT_TYPE(_tag)  (_tag & BITMASK(2))
 #define GET_LENGTH_1_BYTE(_tag) ((_tag >> 2) & BITMASK(3))
@@ -59,5 +56,5 @@ struct program_runtime {
  */
 double get_runtime(struct timeval *start, struct timeval *end);
 
-#endif	/* _DPU_SNAPPY_H_ */
+#endif	/* _SNAPPY_CUDA_H_ */
 

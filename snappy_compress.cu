@@ -479,7 +479,7 @@ snappy_status snappy_compress_host(struct host_buffer_context *input, struct hos
 	return SNAPPY_OK;
 }
 
-snappy_status snappy_compress_dpu(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size, struct program_runtime *runtime)
+snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size, struct program_runtime *runtime)
 {
 	struct timeval start;
 	struct timeval end;
