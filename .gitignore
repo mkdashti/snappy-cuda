@@ -1,0 +1,14 @@
+cscope.files
+cscope.in.out
+cscope.out
+cscope.po.out
+gen_cscope.sh
+gibberish.snappy
+gibberish.txt
+tags
+output.txt
+snappy_compress.o
+snappy_cuda
+snappy_cuda.o
+snappy_decompress.o
+.vscode/settings.json
