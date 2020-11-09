@@ -423,8 +423,6 @@ emit_remainder:
  */
 __device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size)
 {
-	printf("hello\n");
-	printf("input->curr = %p\n",input->curr);
 	uint8_t *base_input = input->curr;
 	uint8_t *input_end = input->curr + input_size;
 	const int32_t shift = 32 - log2_floor_d(table_size);

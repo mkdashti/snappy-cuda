@@ -143,16 +143,9 @@ int main(int argc, char **argv)
     char * input_file = NULL;
     char * output_file = NULL;
     const char * default_output_file = "output.txt";
-	struct host_buffer_context input;
-	struct host_buffer_context output;
+	struct host_buffer_context *input;
+	struct host_buffer_context *output;
 
-	input.buffer = NULL;
-	input.length = 0;
-	input.max = ULONG_MAX;
-
-	output.buffer = NULL;
-	output.length = 0;
-	output.max = ULONG_MAX;
 
 	while ((opt = getopt(argc, argv, options)) != -1)
 	{
@@ -184,29 +177,50 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if(use_cuda)
+	{
+		checkCudaErrors(cudaMallocManaged(&input,sizeof(host_buffer_context)));
+		checkCudaErrors(cudaMallocManaged(&output,sizeof(host_buffer_context)));
+	}
+	else
+	{
+		input = (host_buffer_context *)malloc(sizeof(host_buffer_context));
+		output = (host_buffer_context *)malloc(sizeof(host_buffer_context));
+	}
+	
+
+
+	input->buffer = NULL;
+	input->length = 0;
+	input->max = ULONG_MAX;
+
+	output->buffer = NULL;
+	output->length = 0;
+	output->max = ULONG_MAX;
+
 	if (!input_file)
 	{
 		usage(argv[0]);
 		return -1;
 	}
-	input.file_name = input_file;
+	input->file_name = input_file;
 	printf("Using input file %s\n", input_file);
 
 	// If no output file was provided, use a default file
 	if (output_file == NULL) {
 		output_file = (char *)default_output_file;
 	}
-	output.file_name = output_file;
+	output->file_name = output_file;
 	printf("Using output file %s\n", output_file);
 
 	// Read the input file into main memory
 
 	if(use_cuda) {
-		if (read_input_cuda(input_file, &input))
+		if (read_input_cuda(input_file, input))
 			return -1;
 	}
 	else {
-	if (read_input_host(input_file, &input))
+	if (read_input_host(input_file, input))
 		return -1;
 	}
 
@@ -215,30 +229,30 @@ int main(int argc, char **argv)
 		
 		if (use_cuda)
 		{
-			setup_compression_cuda(&input, &output, &runtime);
-			status = snappy_compress_cuda(&input, &output, block_size, &runtime);
+			setup_compression_cuda(input, output, &runtime);
+			status = snappy_compress_cuda(input, output, block_size, &runtime);
 		}
 		else
 		{
-			setup_compression(&input, &output, &runtime);
+			setup_compression(input, output, &runtime);
 
 			struct timeval start;
 			struct timeval end;
 
 			gettimeofday(&start, NULL);	
-			status = snappy_compress_host(&input, &output, block_size);
+			status = snappy_compress_host(input, output, block_size);
 			gettimeofday(&end, NULL);
 
 			runtime.run = get_runtime(&start, &end);
 		}
 	}
 	else {
-		if (setup_decompression(&input, &output, &runtime))
+		if (setup_decompression(input, output, &runtime))
 			return -1;
 
 		if (use_cuda)
 		{
-			status = snappy_decompress_cuda(&input, &output, &runtime);
+			status = snappy_decompress_cuda(input, output, &runtime);
 		}
 		else
 		{
@@ -246,7 +260,7 @@ int main(int argc, char **argv)
 			struct timeval end;
 
 			gettimeofday(&start, NULL);
-			status = snappy_decompress_host(&input, &output);
+			status = snappy_decompress_host(input, output);
 			gettimeofday(&end, NULL);
 
 			runtime.run = get_runtime(&start, &end);
@@ -257,15 +271,15 @@ int main(int argc, char **argv)
 	{
 		// Write the output buffer from main memory to a file
 		if (!(compress && use_cuda))
-			write_output_host(output_file, &output);
+			write_output_host(output_file, output);
 
 		if (compress) {
-			printf("Compressed %ld bytes to: %s\n", output.length, output_file);
-			printf("Compression ratio: %f\n", 1 - (double)output.length / (double)input.length);
+			printf("Compressed %ld bytes to: %s\n", output->length, output_file);
+			printf("Compression ratio: %f\n", 1 - (double)output->length / (double)input->length);
 		}
 		else {
-			printf("Decompressed %ld bytes to: %s\n", output.length, output_file);
-			printf("Compression ratio: %f\n", 1 - (double)input.length / (double)output.length);
+			printf("Decompressed %ld bytes to: %s\n", output->length, output_file);
+			printf("Compression ratio: %f\n", 1 - (double)input->length / (double)output->length);
 		}
 	
 		printf("Pre-processing time: %f\n", runtime.pre);
@@ -282,6 +296,19 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	if(use_cuda)
+	{
+		checkCudaErrors(cudaFree(input));
+		checkCudaErrors(cudaFree(output));
+	}
+	else
+	{
+		free(input);
+		free(output);
+	}
+	
+	//free(input);
+	//free(output);
 	return 0;
 }
 
