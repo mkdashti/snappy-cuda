@@ -270,7 +270,7 @@ int main(int argc, char **argv)
 	if (status == SNAPPY_OK)
 	{
 		// Write the output buffer from main memory to a file
-		if (!(compress && use_cuda))
+		//if (!(compress && use_cuda))
 			write_output_host(output_file, output);
 
 		if (compress) {
@@ -307,8 +307,6 @@ int main(int argc, char **argv)
 		free(output);
 	}
 	
-	//free(input);
-	//free(output);
 	return 0;
 }
 

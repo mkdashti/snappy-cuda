@@ -12,6 +12,8 @@ all: snappy_cuda
 
 snappy_cuda : $(OBJ)
 	$(CC) $(OBJ) $(CC_FLAGS) -o $@
+	./gen_cscope.sh
+	
 snappy_cuda.o: snappy_cuda.cu snappy_cuda.h
 	$(CC) -c  $< $(CC_FLAGS)
 snappy_compress.o: snappy_compress.cu snappy_compress.h

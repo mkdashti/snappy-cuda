@@ -135,7 +135,7 @@ __host__ __device__ static inline uint32_t read_uint32(uint8_t *ptr)
  * @param size_to_compress: size we are compressing
  * @param table_size[out]: size of the table needed to compress size_to_compress
  */
-__host__ __device__ static inline void get_hash_table(uint16_t *table, uint32_t size_to_compress, uint32_t *table_size)
+static inline void get_hash_table(uint16_t *table, uint32_t size_to_compress, uint32_t *table_size)
 {
 	*table_size = 256;
 	while ((*table_size < MAX_HASH_TABLE_SIZE) && (*table_size < size_to_compress))
@@ -554,6 +554,7 @@ emit_remainder:
 
 __global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size)
 {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
 	compress_block_d(input, output, input_size, table, table_size);
 }
 
