@@ -12,12 +12,6 @@
 #include "snappy_decompress.h"
 
 
-__global__
-void test_kernel (void)
-{
-}
-
-
 const char options[]="dcb:i:o:";
 
 /**
@@ -48,6 +42,45 @@ static int read_input_host(char *in_file, struct host_buffer_context *input)
 	}
 
 	input->buffer = (uint8_t *)malloc(ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer)));
+	input->curr = input->buffer;
+	size_t n = fread(input->buffer, sizeof(*(input->buffer)), input->length, fin);
+	fclose(fin);
+
+#ifdef DEBUG
+	printf("%s: read %ld bytes from %s (%lu)\n", __func__, input->length, in_file, n);
+#endif
+   return (n != input->length);
+}
+
+/**
+ * Read the contents of a file into an in-memory buffer. Upon success,
+ * writes the amount read to input->length.
+ *
+ * @param in_file: input file name.
+ * @param input: holds input buffer information
+ * @return 1 if file does not exist, is too long, or different number of bytes
+ *         were read than expected, 0 otherwise
+ */
+static int read_input_cuda(char *in_file, struct host_buffer_context *input)
+{
+	FILE *fin = fopen(in_file, "r");
+	if (fin == NULL) {
+		fprintf(stderr, "Invalid input file: %s\n", in_file);
+		return 1;
+	}
+
+	fseek(fin, 0, SEEK_END);
+	input->length = ftell(fin);
+	fseek(fin, 0, SEEK_SET);
+
+	if (input->length > input->max) {
+		fprintf(stderr, "input_size is too big (%ld > %ld)\n",
+				input->length, input->max);
+		return 1;
+	}
+
+	//input->buffer = (uint8_t *)malloc(ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer)));
+	checkCudaErrors(cudaMallocManaged(&input->buffer,ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer))));
 	input->curr = input->buffer;
 	size_t n = fread(input->buffer, sizeof(*(input->buffer)), input->length, fin);
 	fclose(fin);
@@ -121,7 +154,6 @@ int main(int argc, char **argv)
 	output.length = 0;
 	output.max = ULONG_MAX;
 
-    test_kernel<<<1,1>>>();
 	while ((opt = getopt(argc, argv, options)) != -1)
 	{
 		switch(opt)
@@ -168,19 +200,28 @@ int main(int argc, char **argv)
 	printf("Using output file %s\n", output_file);
 
 	// Read the input file into main memory
+
+	if(use_cuda) {
+		if (read_input_cuda(input_file, &input))
+			return -1;
+	}
+	else {
 	if (read_input_host(input_file, &input))
 		return -1;
+	}
 
 	struct program_runtime runtime;
 	if (compress) {
-		setup_compression(&input, &output, &runtime);
-
+		
 		if (use_cuda)
 		{
+			setup_compression_cuda(&input, &output, &runtime);
 			status = snappy_compress_cuda(&input, &output, block_size, &runtime);
 		}
 		else
 		{
+			setup_compression(&input, &output, &runtime);
+
 			struct timeval start;
 			struct timeval end;
 
