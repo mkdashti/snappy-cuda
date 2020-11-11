@@ -135,7 +135,7 @@ __host__ __device__ static inline uint32_t read_uint32(uint8_t *ptr)
  * @param size_to_compress: size we are compressing
  * @param table_size[out]: size of the table needed to compress size_to_compress
  */
-static inline void get_hash_table(uint16_t *table, uint32_t size_to_compress, uint32_t *table_size)
+__host__ __device__ static inline void get_hash_table(uint16_t *table, uint32_t size_to_compress, uint32_t *table_size)
 {
 	*table_size = 256;
 	while ((*table_size < MAX_HASH_TABLE_SIZE) && (*table_size < size_to_compress))
@@ -552,10 +552,35 @@ emit_remainder:
 	write_uint32(output_start - 4, output->curr - output_start);
 }
 
-__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size)
+__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-	compress_block_d(input, output, input_size, table, table_size);
+
+	uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
+	
+	uint32_t length_remain = input->length;
+//TODO: Change this while loop to a cuda parallel version
+    //while (input->curr < (input->buffer + input->length)) {
+    while (length_remain > 0) {
+		// Get the next block size ot compress
+		uint32_t to_compress = MIN(length_remain, block_size);
+
+		// Get the size of the hash table used for this block
+		uint32_t table_size;
+		get_hash_table(table, to_compress, &table_size);
+
+		
+		// Compress the current block
+        compress_block_d(input, output, to_compress, table, table_size);
+		
+		length_remain -= to_compress;
+
+	}
+
+	// Update output length
+	output->length = (output->curr - output->buffer);
+    free(table);
+
 }
 
 
@@ -670,12 +695,6 @@ snappy_status snappy_compress_host(struct host_buffer_context *input, struct hos
 
 snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t block_size, struct program_runtime *runtime)
 {
-
-    //uint16_t *table = (uint16_t *)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
-	uint16_t *table = NULL;
-	checkCudaErrors(cudaMallocManaged(&table,sizeof(uint16_t) * MAX_HASH_TABLE_SIZE));
-	
-
 	// Write the decompressed length
 	uint32_t length_remain = input->length;
 	write_varint32(output, length_remain);
@@ -683,29 +702,7 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	// Write the decompressed block size
 	write_varint32(output, block_size);
 
-//TODO: Change this while loop to a cuda parallel version
-    //while (input->curr < (input->buffer + input->length)) {
-    while (length_remain > 0) {
-		// Get the next block size ot compress
-		uint32_t to_compress = MIN(length_remain, block_size);
-
-		// Get the size of the hash table used for this block
-		uint32_t table_size;
-		get_hash_table(table, to_compress, &table_size);
-
-		
-		// Compress the current block
-		//compress_block(input, output, to_compress, table, table_size);
-		snappy_compress_kernel<<<1,1>>>(input, output, to_compress, table, table_size);
-        checkCudaErrors(cudaDeviceSynchronize());
-		
-		length_remain -= to_compress;
-
-	}
-
-	// Update output length
-	output->length = (output->curr - output->buffer);
-
+    snappy_compress_kernel<<<1,1>>>(input, output, block_size);
+    checkCudaErrors(cudaDeviceSynchronize());
 	return SNAPPY_OK;
-
 }
