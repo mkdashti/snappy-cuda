@@ -552,22 +552,25 @@ emit_remainder:
 	write_uint32(output_start - 4, output->curr - output_start);
 }
 
-__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array)
+__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks)
 {
     uint32_t i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
+	if(i < total_blocks)
+	{
+		uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
 
-    // Get the size of the hash table used for this block
-    uint32_t table_size;
-    get_hash_table(table, input_block_size_array[i], &table_size);
-
-
-    // Compress the current block
-    compress_block_d(input+i, output, input_block_size_array[i], table, table_size);
+		// Get the size of the hash table used for this block
+		uint32_t table_size;
+		get_hash_table(table, input_block_size_array[i], &table_size);
 
 
-    free(table);
+		// Compress the current block
+		compress_block_d(input+i, output, input_block_size_array[i], table, table_size);
+
+
+		free(table);
+	}
 
 }
 
@@ -707,12 +710,31 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
         input_block_size_array[total_blocks-1] = last_block_size;
 
 
-printf("Total blocks = %d\n", total_blocks);
-printf("block_size_array[0] = %d\n", input_block_size_array[0]);
+
+
+	//CUDA calculation for grid and threads per block
+	dim3 block(512);
+	dim3 grid(512);
+
+	if(total_blocks <= 512)
+	{
+		grid.x = total_blocks;
+		block.x = 1;
+	}
+	else
+	{
+		grid.x = total_blocks / block.x;
+		block.x += total_blocks % block.x;
+	}
+
+	printf("---\nTotal blocks = %d\n", total_blocks);
+	printf("block_size_array[last_block] = %d\n", input_block_size_array[total_blocks - 1]);
+	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
+
 
     //TODO: We need to pass another output that threads can write to concurrently
     // Then we need to merge these outputs into a single output file
-    snappy_compress_kernel<<<1,1>>>(input, output, input_block_size_array);
+    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks);
     checkCudaErrors(cudaDeviceSynchronize());
 
 	//TODO: change this since we shouldn't control the output like this
