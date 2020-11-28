@@ -421,7 +421,7 @@ emit_remainder:
  * @param table: pointer to allocated hash table
  * @param table_size: size of the hash table
  */
-__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size)
+__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx)
 {
 	uint8_t *base_input = input->curr;
 	uint8_t *input_end = input->curr + input_size;
@@ -554,19 +554,20 @@ emit_remainder:
 
 __global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks)
 {
-    uint32_t i = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
-	if(i < total_blocks)
+	printf("i = %d\n",idx);
+	if(idx < total_blocks)
 	{
 		uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
 
 		// Get the size of the hash table used for this block
 		uint32_t table_size;
-		get_hash_table(table, input_block_size_array[i], &table_size);
+		get_hash_table(table, input_block_size_array[idx], &table_size);
 
 
 		// Compress the current block
-		compress_block_d(input+i, output, input_block_size_array[i], table, table_size);
+		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx);
 
 
 		free(table);
@@ -694,13 +695,9 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	write_varint32(output, block_size);
 
     uint32_t total_blocks = length_remain/block_size;
-    uint32_t last_block_size = 0;
-    if(length_remain%block_size != 0)
-        //last_block_size = block_size - length_remain%block_size;
-		last_block_size = length_remain;
+    uint32_t last_block_size = length_remain - (total_blocks * block_size);
     if(last_block_size)
         ++total_blocks;
-
 
     uint32_t *input_block_size_array = NULL;
 	checkCudaErrors(cudaMallocManaged(&input_block_size_array,sizeof(uint32_t) * total_blocks));
@@ -738,7 +735,8 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
     checkCudaErrors(cudaDeviceSynchronize());
 
 	//TODO: change this since we shouldn't control the output like this
-	output->length = (output->curr - output->buffer);
+	//output->length = (output->curr - output->buffer);
+	output->length = sizeof(uint8_t) * snappy_max_compressed_length(input->length);
 
     checkCudaErrors(cudaFree(input_block_size_array));
 	return SNAPPY_OK;
