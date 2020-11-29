@@ -14,3 +14,4 @@ snappy_decompress.o
 .vscode/settings.json
 urls.snappy
 urls.10K
+codingBig.txt
