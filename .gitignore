@@ -15,3 +15,5 @@ snappy_decompress.o
 urls.snappy
 urls.10K
 codingBig.txt
+coding.txt
+codingcomprezzed.snappy
