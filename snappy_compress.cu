@@ -423,8 +423,11 @@ emit_remainder:
  */
 __device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx)
 {
-	uint8_t *base_input = input->curr;
-	uint8_t *input_end = input->curr + input_size;
+	uint8_t *current_input = input->curr+idx;
+
+
+	uint8_t *base_input = current_input;
+	uint8_t *input_end = current_input + input_size;
 	const int32_t shift = 32 - log2_floor_d(table_size);
 
 	// Make space for compressed length
@@ -432,17 +435,17 @@ __device__ static void compress_block_d(struct host_buffer_context *input, struc
 	uint8_t *output_start = output->curr;
 
 	/*
-	 * Bytes in [next_emit, input->curr) will be emitted as literal bytes.
+	 * Bytes in [next_emit, current_input) will be emitted as literal bytes.
 	 * Or [next_emit, input_end) after the main loop.
 	 */
-	uint8_t *next_emit = input->curr;
+	uint8_t *next_emit = current_input;
 	const uint32_t input_margin_bytes = 15;
 
 	if (input_size >= input_margin_bytes) {
-		const uint8_t *const input_limit = input->curr + input_size - input_margin_bytes;
+		const uint8_t *const input_limit = current_input + input_size - input_margin_bytes;
 			
 		uint32_t next_hash;
-		for (next_hash = hash(++input->curr, shift);;) {
+		for (next_hash = hash(++current_input, shift);;) {
 			/*
 			 * The body of this loop calls EmitLiteral once and then EmitCopy one or
 			 * more times.	(The exception is that when we're close to exhausting
@@ -471,28 +474,28 @@ __device__ static void compress_block_d(struct host_buffer_context *input, struc
 			 * number of bytes to move ahead for each iteration.
 			 */
 			uint32_t skip_bytes = 32;
-			uint8_t *next_input = input->curr;
+			uint8_t *next_input = current_input;
 			uint8_t *candidate;
 			do {
-				input->curr = next_input;
+				current_input = next_input;
 				uint32_t hval = next_hash;
 				uint32_t bytes_between_hash_lookups = skip_bytes++ >> 5;
-				next_input = input->curr + bytes_between_hash_lookups;
+				next_input = current_input + bytes_between_hash_lookups;
 
 				if (next_input > input_limit)
 					goto emit_remainder;
 
 				next_hash = hash(next_input, shift);
 				candidate = base_input + table[hval];
-				table[hval] = input->curr - base_input;
-			} while (read_uint32(input->curr) != read_uint32(candidate));
+				table[hval] = current_input - base_input;
+			} while (read_uint32(current_input) != read_uint32(candidate));
 			
 			/*
 			 * Step 2: A 4-byte match has been found.  We'll later see if more
 			 * than 4 bytes match.	But, prior to the match, input bytes
-			 * [next_emit, input->curr) are unmatched.	Emit them as "literal bytes."
+			 * [next_emit, current_input) are unmatched.	Emit them as "literal bytes."
 			 */
-			emit_literal(output, next_emit, input->curr - next_emit);
+			emit_literal(output, next_emit, current_input - next_emit);
 
 			/*
 			 * Step 3: Call EmitCopy, and then see if another EmitCopy could
@@ -509,36 +512,36 @@ __device__ static void compress_block_d(struct host_buffer_context *input, struc
 
 			do {
 				/*
-				 * We have a 4-byte match at input->curr, and no need to emit any
-				 *	"literal bytes" prior to input->curr.
+				 * We have a 4-byte match at current_input, and no need to emit any
+				 *	"literal bytes" prior to current_input.
 				 */
-				const uint8_t *base = input->curr;
-				int32_t matched = 4 + find_match_length(candidate + 4, input->curr + 4, input_end);
-				input->curr += matched;
+				const uint8_t *base = current_input;
+				int32_t matched = 4 + find_match_length(candidate + 4, current_input + 4, input_end);
+				current_input += matched;
 
 				int32_t offset = base - candidate;
 				emit_copy(output, offset, matched);
 			
 				/*
-				 * We could immediately start working at input->curr now, but to improve
-				 * compression we first update table[Hash(input->curr - 1, ...)]/
+				 * We could immediately start working at current_input now, but to improve
+				 * compression we first update table[Hash(current_input - 1, ...)]/
 				 */
-				insert_tail = input->curr - 1;
-				next_emit = input->curr;
-				if (input->curr >= input_limit)
+				insert_tail = current_input - 1;
+				next_emit = current_input;
+				if (current_input >= input_limit)
 					goto emit_remainder;
 
 				uint32_t prev_hash = hash(insert_tail, shift);
-				table[prev_hash] = input->curr - base_input - 1;
+				table[prev_hash] = current_input - base_input - 1;
 
 				uint32_t curr_hash = hash(insert_tail + 1, shift);
 				candidate = base_input + table[curr_hash];
 				candidate_bytes = read_uint32(candidate);
-				table[curr_hash] = input->curr - base_input;
+				table[curr_hash] = current_input - base_input;
 			} while(read_uint32(insert_tail + 1) == candidate_bytes);
 
 			next_hash = hash(insert_tail + 2, shift);
-			input->curr++;
+			current_input++;
 		}
 	}
 				
@@ -546,10 +549,12 @@ emit_remainder:
 	/* Emit the remaining bytes as literal */
 	if (next_emit < input_end) {
 		emit_literal(output, next_emit, input_end - next_emit);
-		input->curr = input_end;
+		current_input = input_end;
 	}
 
 	write_uint32(output_start - 4, output->curr - output_start);
+
+	
 }
 
 __global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks)
@@ -735,8 +740,8 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
     checkCudaErrors(cudaDeviceSynchronize());
 
 	//TODO: change this since we shouldn't control the output like this
-	//output->length = (output->curr - output->buffer);
-	output->length = sizeof(uint8_t) * snappy_max_compressed_length(input->length);
+	output->length = (output->curr - output->buffer);
+	//output->length = sizeof(uint8_t) * snappy_max_compressed_length(input->length);
 
     checkCudaErrors(cudaFree(input_block_size_array));
 	return SNAPPY_OK;
