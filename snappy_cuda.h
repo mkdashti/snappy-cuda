@@ -40,6 +40,7 @@ typedef struct host_buffer_context
 	uint8_t *curr;			// Pointer to current location in buffer
 	unsigned long length;		// Length of buffer
 	unsigned long max;		// Maximum allowed lenght of buffer
+	uint32_t block_size;		//32K default. This is used in cuda code
 } host_buffer_context;
 
 // Breakdown of time spent doing each action

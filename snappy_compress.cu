@@ -423,8 +423,9 @@ emit_remainder:
  */
 __device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx)
 {
-	uint8_t *current_input = input->curr+idx;
+	uint8_t *current_input = input->buffer+(idx * input->block_size);
 
+printf("first character in block is %c\n", *current_input);
 
 	uint8_t *base_input = current_input;
 	uint8_t *input_end = current_input + input_size;

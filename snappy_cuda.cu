@@ -218,6 +218,7 @@ int main(int argc, char **argv)
 	if(use_cuda) {
 		if (read_input_cuda(input_file, input))
 			return -1;
+		input->block_size = block_size;
 	}
 	else {
 	if (read_input_host(input_file, input))
