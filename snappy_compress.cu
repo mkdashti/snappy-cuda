@@ -409,6 +409,7 @@ emit_remainder:
 	}
 
 	write_uint32(output_start - 4, output->curr - output_start);
+	printf(" host compressed size? %d\n",*(output_start - 4));
 }
 
 /**
@@ -421,19 +422,24 @@ emit_remainder:
  * @param table: pointer to allocated hash table
  * @param table_size: size of the hash table
  */
-__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx)
+__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx, uint32_t *output_offsets)
 {
 	uint8_t *current_input = input->buffer+(idx * input->block_size);
+	uint8_t *current_output = output->buffer+(idx * input->block_size);
+	//uint8_t *current_output = output->buffer;
 
-printf("first character in block is %c\n", *current_input);
+	host_buffer_context temp_output;
+
+	printf("first character in block is %c\n", *current_input);
 
 	uint8_t *base_input = current_input;
 	uint8_t *input_end = current_input + input_size;
 	const int32_t shift = 32 - log2_floor_d(table_size);
 
 	// Make space for compressed length
-	output->curr += 4;
-	uint8_t *output_start = output->curr;
+	current_output += 4;
+	temp_output.curr = current_output;
+	uint8_t *output_start = current_output;
 
 	/*
 	 * Bytes in [next_emit, current_input) will be emitted as literal bytes.
@@ -496,7 +502,7 @@ printf("first character in block is %c\n", *current_input);
 			 * than 4 bytes match.	But, prior to the match, input bytes
 			 * [next_emit, current_input) are unmatched.	Emit them as "literal bytes."
 			 */
-			emit_literal(output, next_emit, current_input - next_emit);
+			emit_literal(&temp_output, next_emit, current_input - next_emit);
 
 			/*
 			 * Step 3: Call EmitCopy, and then see if another EmitCopy could
@@ -521,7 +527,7 @@ printf("first character in block is %c\n", *current_input);
 				current_input += matched;
 
 				int32_t offset = base - candidate;
-				emit_copy(output, offset, matched);
+				emit_copy(&temp_output, offset, matched);
 			
 				/*
 				 * We could immediately start working at current_input now, but to improve
@@ -549,16 +555,19 @@ printf("first character in block is %c\n", *current_input);
 emit_remainder:
 	/* Emit the remaining bytes as literal */
 	if (next_emit < input_end) {
-		emit_literal(output, next_emit, input_end - next_emit);
+		emit_literal(&temp_output, next_emit, input_end - next_emit);
 		current_input = input_end;
 	}
 
-	write_uint32(output_start - 4, output->curr - output_start);
+	write_uint32(output_start - 4, temp_output.curr - output_start);
+	printf("compressed size? %d\n",*(output_start - 4));
+	//output_offsets[idx] = *(output_start - 4);
+	output_offsets[idx] = temp_output.curr - output_start;
 
 	
 }
 
-__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks)
+__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks, uint32_t *output_offsets)
 {
     uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -573,7 +582,7 @@ __global__ void snappy_compress_kernel(struct host_buffer_context *input, struct
 
 
 		// Compress the current block
-		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx);
+		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx, output_offsets);
 
 
 		free(table);
@@ -687,6 +696,7 @@ snappy_status snappy_compress_host(struct host_buffer_context *input, struct hos
 
 	// Update output length
 	output->length = (output->curr - output->buffer);
+	printf("host output length = %ld\n",output->length);
 
 	return SNAPPY_OK;
 }
@@ -712,8 +722,8 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
     if(last_block_size)
         input_block_size_array[total_blocks-1] = last_block_size;
 
-
-
+	uint32_t *output_offsets;		//this will hold the end of each output portion for easy later merging
+	checkCudaErrors(cudaMallocManaged(&output_offsets,sizeof(uint32_t) * total_blocks));
 
 	//CUDA calculation for grid and threads per block
 	dim3 block(512);
@@ -737,13 +747,16 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 
     //TODO: We need to pass another output that threads can write to concurrently
     // Then we need to merge these outputs into a single output file
-    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks);
+    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks, output_offsets);
     checkCudaErrors(cudaDeviceSynchronize());
 
 	//TODO: change this since we shouldn't control the output like this
-	output->length = (output->curr - output->buffer);
+	//output->length = (output->curr - output->buffer);
 	//output->length = sizeof(uint8_t) * snappy_max_compressed_length(input->length);
+	for(int i = 0; i < total_blocks; i++)
+		output->length += output_offsets[i];
 
     checkCudaErrors(cudaFree(input_block_size_array));
+	checkCudaErrors(cudaFree(output_offsets));
 	return SNAPPY_OK;
 }
