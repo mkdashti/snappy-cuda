@@ -409,7 +409,7 @@ emit_remainder:
 	}
 
 	write_uint32(output_start - 4, output->curr - output_start);
-	printf(" host compressed size? %d\n",*(output_start - 4));
+	//printf(" host compressed size? %d\n",*(output_start - 4));
 }
 
 /**
@@ -422,19 +422,22 @@ emit_remainder:
  * @param table: pointer to allocated hash table
  * @param table_size: size of the hash table
  */
-__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx, uint32_t *output_offsets)
+__device__ static void compress_block_d(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t input_size, uint16_t *table, uint32_t table_size, uint32_t idx, uint32_t *output_offsets, uint32_t output_metadata_size)
 {
 	uint8_t *current_input = input->buffer+(idx * input->block_size);
 	uint8_t *current_output = output->buffer+(idx * input->block_size);
-	//uint8_t *current_output = output->buffer;
 
 	host_buffer_context temp_output;
 
-	printf("first character in block is %c\n", *current_input);
+	//printf("first character in block is %c\n", *current_input);
 
 	uint8_t *base_input = current_input;
 	uint8_t *input_end = current_input + input_size;
 	const int32_t shift = 32 - log2_floor_d(table_size);
+
+
+	if(idx == 0)
+		current_output += output_metadata_size;
 
 	// Make space for compressed length
 	current_output += 4;
@@ -560,18 +563,16 @@ emit_remainder:
 	}
 
 	write_uint32(output_start - 4, temp_output.curr - output_start);
-	printf("compressed size? %d\n",*(output_start - 4));
-	//output_offsets[idx] = *(output_start - 4);
+	//printf("compressed size? %d\n",*(output_start - 4));
 	output_offsets[idx] = temp_output.curr - output_start + 4;
 
 	
 }
 
-__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks, uint32_t *output_offsets)
+__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks, uint32_t *output_offsets, uint32_t output_metadata_size)
 {
     uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
-	printf("i = %d\n",idx);
 	if(idx < total_blocks)
 	{
 		uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
@@ -582,7 +583,7 @@ __global__ void snappy_compress_kernel(struct host_buffer_context *input, struct
 
 
 		// Compress the current block
-		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx, output_offsets);
+		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx, output_offsets, output_metadata_size);
 
 
 		free(table);
@@ -747,17 +748,29 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
 
 
-    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks, output_offsets);
+    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks, output_offsets, output_metadata_size);
     checkCudaErrors(cudaDeviceSynchronize());
 
+	output->length += output_metadata_size;
 	for(int i = 0; i < total_blocks; i++)
 		output->length += output_offsets[i];
-	output->length += output_metadata_size;
+
+
 
 	// The first part of the output is the metadata (output_metadata_size bytes)
 	// Every cuda thread will work on a block_size (32K) block independantly and write to its output block (also 32K)
 	// We need to get first part (the meat!) of each output block and merge into the output buffer
-	
+	uint32_t length_so_far = output_metadata_size + output_offsets[0];
+	for(int i = 1; i < total_blocks; i++) // no need to copy the first output block since it's in its right place
+	{
+		//printf("output->buffer %p output->buffer + metadata %p \n", output->buffer, output->buffer + output_metadata_size);
+		//printf("size of copied compressed block %d \n", output_offsets[i]);
+		
+		memcpy(output->buffer + length_so_far, output->buffer+(i * input->block_size), sizeof(uint8_t) * output_offsets[i]);
+		
+		length_so_far += output_offsets[i];
+	}
+
     checkCudaErrors(cudaFree(input_block_size_array));
 	checkCudaErrors(cudaFree(output_offsets));
 
