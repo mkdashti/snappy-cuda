@@ -562,7 +562,7 @@ emit_remainder:
 	write_uint32(output_start - 4, temp_output.curr - output_start);
 	printf("compressed size? %d\n",*(output_start - 4));
 	//output_offsets[idx] = *(output_start - 4);
-	output_offsets[idx] = temp_output.curr - output_start;
+	output_offsets[idx] = temp_output.curr - output_start + 4;
 
 	
 }
@@ -710,6 +710,8 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	// Write the decompressed block size
 	write_varint32(output, block_size);
 
+	uint32_t output_metadata_size = output->curr - output->buffer;
+
     uint32_t total_blocks = length_remain/block_size;
     uint32_t last_block_size = length_remain - (total_blocks * block_size);
     if(last_block_size)
@@ -745,18 +747,19 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
 
 
-    //TODO: We need to pass another output that threads can write to concurrently
-    // Then we need to merge these outputs into a single output file
     snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks, output_offsets);
     checkCudaErrors(cudaDeviceSynchronize());
 
-	//TODO: change this since we shouldn't control the output like this
-	//output->length = (output->curr - output->buffer);
-	//output->length = sizeof(uint8_t) * snappy_max_compressed_length(input->length);
 	for(int i = 0; i < total_blocks; i++)
 		output->length += output_offsets[i];
+	output->length += output_metadata_size;
 
+	// The first part of the output is the metadata (output_metadata_size bytes)
+	// Every cuda thread will work on a block_size (32K) block independantly and write to its output block (also 32K)
+	// We need to get first part (the meat!) of each output block and merge into the output buffer
+	
     checkCudaErrors(cudaFree(input_block_size_array));
 	checkCudaErrors(cudaFree(output_offsets));
+
 	return SNAPPY_OK;
 }
