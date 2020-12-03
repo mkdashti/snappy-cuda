@@ -12,8 +12,13 @@ snappy_cuda
 snappy_cuda.o
 snappy_decompress.o
 .vscode/settings.json
-urls.snappy
 urls.10K
 codingBig.txt
 coding.txt
-codingcomprezzed.snappy
+*.snappy
+geo.protodata
+html_x_4
+plrabn12.txt
+urls.10Kx10
+codingx10.txt
+temp.txt

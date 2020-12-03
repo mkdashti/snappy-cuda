@@ -569,24 +569,20 @@ emit_remainder:
 	
 }
 
-__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks, uint32_t *output_offsets, uint32_t output_metadata_size)
+__global__ void snappy_compress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t *input_block_size_array, uint32_t total_blocks, uint32_t *output_offsets, uint32_t output_metadata_size, uint16_t **table)
 {
     uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
 	if(idx < total_blocks)
 	{
-		uint16_t *table = (uint16_t*)malloc(sizeof(uint16_t) * MAX_HASH_TABLE_SIZE);
-
 		// Get the size of the hash table used for this block
 		uint32_t table_size;
-		get_hash_table(table, input_block_size_array[idx], &table_size);
 
-
+		get_hash_table(table[idx], input_block_size_array[idx], &table_size);
 		// Compress the current block
-		compress_block_d(input, output, input_block_size_array[idx], table, table_size, idx, output_offsets, output_metadata_size);
+		compress_block_d(input, output, input_block_size_array[idx], table[idx], table_size, idx, output_offsets, output_metadata_size);
 
-
-		free(table);
+		
 	}
 
 }
@@ -728,27 +724,28 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	uint32_t *output_offsets;		//this will hold the end of each output portion for easy later merging
 	checkCudaErrors(cudaMallocManaged(&output_offsets,sizeof(uint32_t) * total_blocks));
 
-	//CUDA calculation for grid and threads per block
-	dim3 block(512);
-	dim3 grid(512);
 
-	if(total_blocks <= 512)
+	uint16_t **table;
+	checkCudaErrors(cudaMallocManaged(&table, sizeof(uint16_t *) * MAX_HASH_TABLE_SIZE));
+	for(int i = 0; i < total_blocks; i++)
+		checkCudaErrors(cudaMallocManaged(&table[i], sizeof(uint16_t) * MAX_HASH_TABLE_SIZE));
+
+	//CUDA calculation for grid and threads per block
+	dim3 block(1);
+	dim3 grid(total_blocks);
+
+	if (total_blocks >= 1024 * 1024 * 1024)
 	{
-		grid.x = total_blocks;
-		block.x = 1;
-	}
-	else
-	{
-		grid.x = total_blocks / block.x;
-		block.x += total_blocks % block.x;
+		block.x = 512;
+		grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
 	}
 
 	printf("---\nTotal blocks = %d\n", total_blocks);
 	printf("block_size_array[last_block] = %d\n", input_block_size_array[total_blocks - 1]);
 	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
 
-
-    snappy_compress_kernel<<<grid,block>>>(input, output, input_block_size_array, total_blocks, output_offsets, output_metadata_size);
+	
+    snappy_compress_kernel<<<grid,block,0>>>(input, output, input_block_size_array, total_blocks, output_offsets, output_metadata_size, table);
     checkCudaErrors(cudaDeviceSynchronize());
 
 	output->length += output_metadata_size;
@@ -773,6 +770,8 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 
     checkCudaErrors(cudaFree(input_block_size_array));
 	checkCudaErrors(cudaFree(output_offsets));
+	for(int i = 0; i < total_blocks; i++)
+		checkCudaErrors(cudaFree(table[i]));
 
 	return SNAPPY_OK;
 }
