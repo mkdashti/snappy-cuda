@@ -231,7 +231,16 @@ int main(int argc, char **argv)
 		if (use_cuda)
 		{
 			setup_compression_cuda(input, output, &runtime);
+
+
+			struct timeval start;
+			struct timeval end;
+
+			gettimeofday(&start, NULL);	
 			status = snappy_compress_cuda(input, output, block_size, &runtime);
+			gettimeofday(&end, NULL);
+
+			runtime.run = get_runtime(&start, &end);
 		}
 		else
 		{
@@ -287,7 +296,7 @@ int main(int argc, char **argv)
 		printf("Alloc time: %f\n", runtime.d_alloc);
 		printf("Load time: %f\n", runtime.load);
 		printf("Copy in time: %f\n", runtime.copy_in);
-		printf("Host time: %f\n", runtime.run);
+		printf("Compression time: %f\n", runtime.run);
 		printf("Copy out time: %f\n", runtime.copy_out);
 		printf("Free time: %f\n", runtime.d_free);
 	}
