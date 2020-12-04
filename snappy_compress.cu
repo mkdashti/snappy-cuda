@@ -726,7 +726,7 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 
 
 	uint16_t **table;
-	checkCudaErrors(cudaMallocManaged(&table, sizeof(uint16_t *) * MAX_HASH_TABLE_SIZE));
+	checkCudaErrors(cudaMallocManaged(&table, sizeof(uint16_t *) * total_blocks));
 	for(int i = 0; i < total_blocks; i++)
 		checkCudaErrors(cudaMallocManaged(&table[i], sizeof(uint16_t) * MAX_HASH_TABLE_SIZE));
 

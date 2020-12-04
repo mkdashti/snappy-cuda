@@ -2,6 +2,7 @@ CUDA_DIR = /usr/local/cuda
 
 CUDA_LIB_DIR := $(CUDA_DIR)/lib64
 CUDA_ARCH_FLAGS := -arch=sm_75
+#CC_FLAGS += $(CUDA_ARCH_FLAGS) -I. -g -G -Xptxas -dlcm=cg
 CC_FLAGS += $(CUDA_ARCH_FLAGS) -I. -g -G
 
 CC := $(CUDA_DIR)/bin/nvcc
