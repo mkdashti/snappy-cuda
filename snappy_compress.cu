@@ -656,7 +656,8 @@ void setup_compression_cuda(struct host_buffer_context *input, struct host_buffe
 	 */
 	uint32_t max_compressed_length = snappy_max_compressed_length(input->length);
 	//output->buffer = (uint8_t *)malloc(sizeof(uint8_t) * max_compressed_length);
-	checkCudaErrors(cudaMallocManaged(&output->buffer,sizeof(uint8_t) * max_compressed_length));
+	output->total_size = sizeof(uint8_t) * max_compressed_length;
+	checkCudaErrors(cudaMallocManaged(&output->buffer,output->total_size));
 	output->curr = output->buffer;
 	output->length = 0;
 
@@ -744,7 +745,11 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	printf("block_size_array[last_block] = %d\n", input_block_size_array[total_blocks - 1]);
 	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
 
-	
+	int device = -1;
+  	cudaGetDevice(&device);
+  	cudaMemPrefetchAsync(output->buffer, output->total_size, device, NULL);
+	cudaMemPrefetchAsync(input->buffer, input->total_size, device, NULL);
+
     snappy_compress_kernel<<<grid,block,0>>>(input, output, input_block_size_array, total_blocks, output_offsets, output_metadata_size, table);
     checkCudaErrors(cudaDeviceSynchronize());
 

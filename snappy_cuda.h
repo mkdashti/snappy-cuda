@@ -41,6 +41,7 @@ typedef struct host_buffer_context
 	unsigned long length;		// Length of buffer
 	unsigned long max;		// Maximum allowed lenght of buffer
 	uint32_t block_size;		//32K default. This is used in cuda code
+	uint32_t total_size;		//total allocated size, used for cudamemprefetchasynch
 } host_buffer_context;
 
 // Breakdown of time spent doing each action

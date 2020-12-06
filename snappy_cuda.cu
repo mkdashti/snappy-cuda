@@ -80,7 +80,8 @@ static int read_input_cuda(char *in_file, struct host_buffer_context *input)
 	}
 
 	//input->buffer = (uint8_t *)malloc(ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer)));
-	checkCudaErrors(cudaMallocManaged(&input->buffer,ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer))));
+	input->total_size = ALIGN_LONG(input->length, 8) * sizeof(*(input->buffer));
+	checkCudaErrors(cudaMallocManaged(&input->buffer,input->total_size));
 	input->curr = input->buffer;
 	size_t n = fread(input->buffer, sizeof(*(input->buffer)), input->length, fin);
 	fclose(fin);
