@@ -53,6 +53,8 @@ struct program_runtime {
 	double run;
 	double copy_out;
 	double d_free;
+	int blocks;
+	int threads_per_block;
 };
 
 /**

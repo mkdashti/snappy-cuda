@@ -12,7 +12,7 @@
 #include "snappy_decompress.h"
 
 
-const char options[]="dcb:i:o:";
+const char options[]="dcb:i:o:x:y:";
 
 /**
  * Read the contents of a file into an in-memory buffer. Upon success,
@@ -116,8 +116,10 @@ static void usage(const char *exe_name)
 	fprintf(stderr, "**DEBUG BUILD**\n");
 #endif //DEBUG
 	fprintf(stderr, "Compress or decompress a file with Snappy\nCan use either the host CPU or CUDA\n");
-	fprintf(stderr, "usage: %s [-d] [-c] [-b <block_size>] -i <input_file> [-o <output_file>]\n", exe_name);
+	fprintf(stderr, "usage: %s [-d] [-x <cuda blocks>] [-y <cuda threads per block] [-c] [-b <block_size>] -i <input_file> [-o <output_file>]\n", exe_name);
 	fprintf(stderr, "d: use CUDA, by default host is used\n");
+	fprintf(stderr, "x: Grid size - number of blocks (Carefull! no error checks are done)\n");
+	fprintf(stderr, "y: number of threads per block (Carefull! no error checks are done)\n");
 	fprintf(stderr, "c: perform compression, by default performs decompression\n");
 	fprintf(stderr, "b: block size used for compression, default is 32KB, ignored for decompression\n");
 	fprintf(stderr, "i: input file\n");
@@ -146,6 +148,9 @@ int main(int argc, char **argv)
     const char * default_output_file = "output.txt";
 	struct host_buffer_context *input;
 	struct host_buffer_context *output;
+	struct program_runtime runtime;
+
+	runtime.blocks = runtime.threads_per_block = 0; //user didn't set values so use defaults which are set later
 
 
 	while ((opt = getopt(argc, argv, options)) != -1)
@@ -170,6 +175,14 @@ int main(int argc, char **argv)
 
 		case 'o':
 			output_file = optarg;
+			break;
+
+		case 'x':
+			runtime.blocks = atoi(optarg);
+			break;
+		
+		case 'y':
+			runtime.threads_per_block = atoi(optarg);
 			break;
 
 		default:
@@ -226,7 +239,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	struct program_runtime runtime;
+	
 	if (compress) {
 		
 		if (use_cuda)

@@ -734,12 +734,20 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	//CUDA calculation for grid and threads per block
 	dim3 block(1);
 	dim3 grid(total_blocks);
-
-	if (total_blocks >= 1024 * 1024 * 1024)
+	if(runtime->blocks == 0 && runtime->threads_per_block == 0) //only set blocks and threads_per_block if user didn't set them
 	{
-		block.x = 512;
-		grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		if (total_blocks >= 1024 * 1024 * 1024)
+		{
+			block.x = 512;
+			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		}
 	}
+	else
+	{
+		grid.x = runtime->blocks;
+		block.x = runtime->threads_per_block;
+	}
+	
 
 	printf("---\nTotal blocks = %d\n", total_blocks);
 	printf("block_size_array[last_block] = %d\n", input_block_size_array[total_blocks - 1]);

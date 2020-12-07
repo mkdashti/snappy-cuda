@@ -21,3 +21,6 @@ test/
 temp.txt
 results/
 runCompressionTests-nvprof.sh
+dlcm_nvprof_cuda_results.txt
+runCompressionTests-GPU.sh
+dlcm_cuda_results.txt
