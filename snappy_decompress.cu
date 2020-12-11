@@ -212,6 +212,39 @@ snappy_status setup_decompression(struct host_buffer_context *input, struct host
 }
 
 
+snappy_status setup_decompression_cuda(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime)
+{
+	struct timeval start;
+	struct timeval end;
+	gettimeofday(&start, NULL);
+
+	// Read the decompressed length
+	uint32_t dlength;
+	if (!read_varint32(input, &dlength)) {
+		fprintf(stderr, "Failed to read decompressed length\n");
+		return SNAPPY_INVALID_INPUT;
+	}
+
+	// Check that uncompressed length is within the max we can store
+	if (dlength > output->max) {
+		fprintf(stderr, "Output length is too big: max=%ld len=%d\n", output->max, dlength);
+		return SNAPPY_BUFFER_TOO_SMALL;
+	}
+
+	// Allocate output buffer
+    //printf("dlength, aligned, aligned | bitmasked %d %d %d\n",dlength, ALIGN(dlength,8), ALIGN(dlength, 8) | BITMASK(11));
+	//output->buffer = (uint8_t *)malloc(ALIGN(dlength, 8) | BITMASK(11));
+	checkCudaErrors(cudaMallocManaged(&output->buffer, ALIGN(dlength, 8) | BITMASK(11)));
+
+	output->curr = output->buffer;
+	output->length = dlength;
+
+	gettimeofday(&end, NULL);
+	runtime->pre = get_runtime(&start, &end);
+
+	return SNAPPY_OK;
+}
+
 snappy_status snappy_decompress_host(struct host_buffer_context *input, struct host_buffer_context *output)
 {
 	// Read the decompressed block size

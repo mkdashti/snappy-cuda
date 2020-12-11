@@ -271,15 +271,26 @@ int main(int argc, char **argv)
 		}
 	}
 	else {
-		if (setup_decompression(input, output, &runtime))
-			return -1;
-
+	
 		if (use_cuda)
 		{
+			if (setup_decompression_cuda(input, output, &runtime))
+				return -1;
+
+			struct timeval start;
+			struct timeval end;
+
+			gettimeofday(&start, NULL);
 			status = snappy_decompress_cuda(input, output, &runtime);
+			gettimeofday(&end, NULL);
+
+			runtime.run = get_runtime(&start, &end);
 		}
 		else
 		{
+			if (setup_decompression(input, output, &runtime))
+				return -1;
+
 			struct timeval start;
 			struct timeval end;
 
@@ -310,7 +321,7 @@ int main(int argc, char **argv)
 		printf("Alloc time: %f\n", runtime.d_alloc);
 		printf("Load time: %f\n", runtime.load);
 		printf("Copy in time: %f\n", runtime.copy_in);
-		printf("Compression time: %f\n", runtime.run);
+		printf("Elapsed time: %f\n", runtime.run);
 		printf("Copy out time: %f\n", runtime.copy_out);
 		printf("Free time: %f\n", runtime.d_free);
 	}

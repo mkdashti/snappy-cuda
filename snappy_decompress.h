@@ -15,6 +15,18 @@
 snappy_status setup_decompression(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime);
 
 /**
+ * Prepares the necessary constructs for running decompression on the GPU.
+ * Allocates the output buffer to match the size of the decompressed file.
+ *
+ * @param input: holds input buffer information
+ * @param output: holds output buffer information
+ * @param runtime: struct holding breakdown of runtimes for different parts of the program
+ * @return SNAPPY_OK if successful, error code otherwise
+ */
+snappy_status setup_decompression_cuda(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime);
+
+
+/**
  * Perform the Snappy decompression on the host.
  *
  * @param input: holds input buffer information
