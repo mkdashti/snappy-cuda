@@ -15,7 +15,7 @@
  * @return False if all 5 bytes were read and there is still more data to
  *		   read, True otherwise
  */
-static inline bool read_varint32(struct host_buffer_context *input, uint32_t *val)
+__host__ __device__ static inline bool read_varint32(struct host_buffer_context *input, uint32_t *val)
 {
 	int shift = 0;
 	*val = 0;
@@ -38,7 +38,7 @@ static inline bool read_varint32(struct host_buffer_context *input, uint32_t *va
  * @param input: holds input buffer information
  * @return Unsigned integer read
  */
-static uint32_t read_uint32(struct host_buffer_context *input)
+__host__ __device__ static uint32_t read_uint32(struct host_buffer_context *input)
 {
 	uint32_t val = 0;
 	for (uint8_t i = 0; i < sizeof(uint32_t); i++) {
@@ -56,7 +56,7 @@ static uint32_t read_uint32(struct host_buffer_context *input)
  * @param len: length in bytes of the size to read
  * @return 0 if we reached the end of input buffer, size of literal otherwise
  */
-static inline uint32_t read_long_literal_size(struct host_buffer_context *input, uint32_t len)
+__host__ __device__ static inline uint32_t read_long_literal_size(struct host_buffer_context *input, uint32_t len)
 {
 	if ((input->curr + len) >= (input->buffer + input->length))
 		return 0;
@@ -75,7 +75,7 @@ static inline uint32_t read_long_literal_size(struct host_buffer_context *input,
  * @param input: holds input buffer information
  * @return 0 if we reached the end of input buffer, offset of the copy otherwise
  */
-static inline uint16_t make_offset_1_byte(uint8_t tag, struct host_buffer_context *input)
+__host__ __device__ static inline uint16_t make_offset_1_byte(uint8_t tag, struct host_buffer_context *input)
 {
 	if (input->curr >= (input->buffer + input->length))
 		return 0;
@@ -89,7 +89,7 @@ static inline uint16_t make_offset_1_byte(uint8_t tag, struct host_buffer_contex
  * @param input: holds input buffer information
  * @return 0 if we reached the end of input buffer, offset of the copy otherwise
  */
-static inline uint16_t make_offset_2_byte(uint8_t tag, struct host_buffer_context *input)
+__host__ __device__ static inline uint16_t make_offset_2_byte(uint8_t tag, struct host_buffer_context *input)
 {
 	UNUSED(tag);
 
@@ -110,7 +110,7 @@ static inline uint16_t make_offset_2_byte(uint8_t tag, struct host_buffer_contex
  * @param input: holds input buffer information
  * @return 0 if we reached the end of input buffer, offset of the copy otherwise
  */
-static inline uint32_t make_offset_4_byte(uint8_t tag, struct host_buffer_context *input)
+__host__ __device__ static inline uint32_t make_offset_4_byte(uint8_t tag, struct host_buffer_context *input)
 {
 	UNUSED(tag);
 
@@ -134,7 +134,7 @@ static inline uint32_t make_offset_4_byte(uint8_t tag, struct host_buffer_contex
  * @param output: holds output buffer information
  * @param len: length of data to copy over
  */
-static void writer_append_host(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t len)
+__host__ __device__ static void writer_append_host(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t len)
 {
 	//printf("Writing %u bytes at 0x%x\n", len, (input->curr - input->buffer));
 	while (len &&
@@ -156,7 +156,7 @@ static void writer_append_host(struct host_buffer_context *input, struct host_bu
  * @param offset: where to copy from, offset from current output pointer
  * @return False if offset if invalid, True otherwise
  */
-static bool write_copy_host(struct host_buffer_context *output, uint32_t copy_length, uint32_t offset)
+__host__ __device__ static bool write_copy_host(struct host_buffer_context *output, uint32_t copy_length, uint32_t offset)
 {
 	//printf("Copying %u bytes from offset=0x%lx to 0x%lx\n", copy_length, (output->curr - output->buffer) - offset, output->curr - output->buffer);
 	const uint8_t *copy_curr = output->curr;
@@ -178,6 +178,74 @@ static bool write_copy_host(struct host_buffer_context *output, uint32_t copy_le
 	return true;
 }
 
+__global__ void snappy_decompress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t total_blocks, uint32_t dblock_size)
+{
+	uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if(idx < total_blocks)
+	{
+		while (input->curr < (input->buffer + input->length)) {
+		// Read the compressed block size
+		uint32_t compressed_size = read_uint32(input);	
+		uint8_t *block_end = input->curr + compressed_size;
+	
+		while (input->curr != block_end) {	
+			uint16_t length;
+			uint32_t offset;
+			const uint8_t tag = *input->curr++;
+			//printf("Got tag byte 0x%x at index 0x%lx\n", tag, input->curr - input->buffer - 1);
+
+			/* There are two types of elements in a Snappy stream: Literals and
+			copies (backreferences). Each element starts with a tag byte,
+			and the lower two bits of this tag byte signal what type of element
+			will follow. */
+			switch (GET_ELEMENT_TYPE(tag))
+			{
+			case EL_TYPE_LITERAL:
+				/* For literals up to and including 60 bytes in length, the upper
+				 * six bits of the tag byte contain (len-1). The literal follows
+				 * immediately thereafter in the bytestream.
+				 */
+				length = GET_LENGTH_2_BYTE(tag) + 1;
+				if (length > 60)
+				{
+					length = read_long_literal_size(input, length - 60) + 1;
+				}
+
+				writer_append_host(input, output, length);
+				break;
+
+			/* Copies are references back into previous decompressed data, telling
+			 * the decompressor to reuse data it has previously decoded.
+			 * They encode two values: The _offset_, saying how many bytes back
+			 * from the current position to read, and the _length_, how many bytes
+			 * to copy.
+			 */
+			case EL_TYPE_COPY_1:
+				length = GET_LENGTH_1_BYTE(tag) + 4;
+				offset = make_offset_1_byte(tag, input);
+				if (!write_copy_host(output, length, offset))
+					return;
+				break;
+
+			case EL_TYPE_COPY_2:
+				length = GET_LENGTH_2_BYTE(tag) + 1;
+				offset = make_offset_2_byte(tag, input);
+				if (!write_copy_host(output, length, offset))
+					return;
+				break;
+
+			case EL_TYPE_COPY_4:
+				length = GET_LENGTH_2_BYTE(tag) + 1;
+				offset = make_offset_4_byte(tag, input);
+				if (!write_copy_host(output, length, offset))
+					return;
+				break;
+			}
+		}
+	}
+	}
+}
 
 snappy_status setup_decompression(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime)
 {
@@ -321,12 +389,47 @@ snappy_status snappy_decompress_host(struct host_buffer_context *input, struct h
 
 snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct host_buffer_context *output, struct program_runtime *runtime)
 {
-	struct timeval start;
-	struct timeval end;
-	gettimeofday(&start, NULL);
+	uint32_t total_blocks = 0;
 
-	gettimeofday(&end, NULL);
-	runtime->pre += get_runtime(&start, &end);
+	// Read the decompressed block size
+	uint32_t dblock_size;
+	if (!read_varint32(input, &dblock_size)) {
+		fprintf(stderr, "Failed to read decompressed block size\n");
+		return SNAPPY_INVALID_INPUT;
+	}
+
+	//total dblock_size (32K) output blocks
+	total_blocks = (output->length + dblock_size - 1) / dblock_size;
+
+	//CUDA calculation for grid and threads per block
+	dim3 block(1);
+	dim3 grid(total_blocks);
+	if(runtime->blocks == 0 && runtime->threads_per_block == 0) //only set blocks and threads_per_block if user didn't set them
+	{
+		if (total_blocks >= 1024 * 1024 * 1024)
+		{
+			block.x = 512;
+			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		}
+	}
+	else
+	{
+		grid.x = runtime->blocks;
+		block.x = runtime->threads_per_block;
+	}
+	
+
+	printf("---\nTotal blocks = %d\n", total_blocks);
+	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
+
+	int device = -1;
+  	cudaGetDevice(&device);
+  	cudaMemPrefetchAsync(output->buffer, output->total_size, device, NULL);
+	cudaMemPrefetchAsync(input->buffer, input->total_size, device, NULL);
+
+	//snappy_decompress_kernel<<<grid,block,0>>>(input, output, total_blocks, dblock_size);
+	snappy_decompress_kernel<<<1,1,0>>>(input, output, 1, dblock_size);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	return SNAPPY_OK;
 }	
