@@ -24,3 +24,6 @@ runCompressionTests-nvprof.sh
 dlcm_nvprof_cuda_results.txt
 runCompressionTests-GPU.sh
 dlcm_cuda_results.txt
+cpu_decompress_results.txt
+cuda_decompress_results.txt
+runDeCompressionTests.sh
