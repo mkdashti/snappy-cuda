@@ -457,5 +457,8 @@ snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct h
 	snappy_decompress_kernel<<<grid,block,0>>>(input, output, total_blocks, dblock_size, input_offsets, input_currents);
 	checkCudaErrors(cudaDeviceSynchronize());
 
+	checkCudaErrors(cudaFree(input_offsets));
+	checkCudaErrors(cudaFree(input_currents));
+	
 	return SNAPPY_OK;
 }	
