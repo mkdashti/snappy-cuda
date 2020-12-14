@@ -158,6 +158,7 @@ __host__ __device__ static void writer_append_host(struct host_buffer_context *i
  */
 __host__ __device__ static bool write_copy_host(struct host_buffer_context *output, uint32_t copy_length, uint32_t offset)
 {
+	//printf("OFFSET 0x%x\n",offset);
 	//printf("Copying %u bytes from offset=0x%lx to 0x%lx\n", copy_length, (output->curr - output->buffer) - offset, output->curr - output->buffer);
 	const uint8_t *copy_curr = output->curr;
 	copy_curr -= offset;
@@ -178,21 +179,27 @@ __host__ __device__ static bool write_copy_host(struct host_buffer_context *outp
 	return true;
 }
 
-__global__ void snappy_decompress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t total_blocks, uint32_t dblock_size)
+__global__ void snappy_decompress_kernel(struct host_buffer_context *input, struct host_buffer_context *output, uint32_t total_blocks, uint32_t dblock_size, uint32_t *input_offsets, uint8_t **input_currents)
 {
 	uint32_t idx = blockDim.x * blockIdx.x + threadIdx.x;
 
+	host_buffer_context input_d, output_d;
+	input_d.buffer = input->buffer;
+	input_d.length = input->length;
+	input_d.curr = input_currents[idx];
+
+	output_d.buffer = output->buffer;
+	output_d.length = output->length;
+	output_d.curr = output->curr + (idx * dblock_size);
+
 	if(idx < total_blocks)
 	{
-		while (input->curr < (input->buffer + input->length)) {
-		// Read the compressed block size
-		uint32_t compressed_size = read_uint32(input);	
-		uint8_t *block_end = input->curr + compressed_size;
+		uint8_t *block_end = input_d.curr + input_offsets[idx];
 	
-		while (input->curr != block_end) {	
+		while (input_d.curr != block_end) {	
 			uint16_t length;
 			uint32_t offset;
-			const uint8_t tag = *input->curr++;
+			const uint8_t tag = *input_d.curr++;
 			//printf("Got tag byte 0x%x at index 0x%lx\n", tag, input->curr - input->buffer - 1);
 
 			/* There are two types of elements in a Snappy stream: Literals and
@@ -209,10 +216,10 @@ __global__ void snappy_decompress_kernel(struct host_buffer_context *input, stru
 				length = GET_LENGTH_2_BYTE(tag) + 1;
 				if (length > 60)
 				{
-					length = read_long_literal_size(input, length - 60) + 1;
+					length = read_long_literal_size(&input_d, length - 60) + 1;
 				}
 
-				writer_append_host(input, output, length);
+				writer_append_host(&input_d, &output_d, length);
 				break;
 
 			/* Copies are references back into previous decompressed data, telling
@@ -223,27 +230,26 @@ __global__ void snappy_decompress_kernel(struct host_buffer_context *input, stru
 			 */
 			case EL_TYPE_COPY_1:
 				length = GET_LENGTH_1_BYTE(tag) + 4;
-				offset = make_offset_1_byte(tag, input);
-				if (!write_copy_host(output, length, offset))
+				offset = make_offset_1_byte(tag, &input_d);
+				if (!write_copy_host(&output_d, length, offset))
 					return;
 				break;
 
 			case EL_TYPE_COPY_2:
 				length = GET_LENGTH_2_BYTE(tag) + 1;
-				offset = make_offset_2_byte(tag, input);
-				if (!write_copy_host(output, length, offset))
+				offset = make_offset_2_byte(tag, &input_d);
+				if (!write_copy_host(&output_d, length, offset))
 					return;
 				break;
 
 			case EL_TYPE_COPY_4:
 				length = GET_LENGTH_2_BYTE(tag) + 1;
-				offset = make_offset_4_byte(tag, input);
-				if (!write_copy_host(output, length, offset))
+				offset = make_offset_4_byte(tag, &input_d);
+				if (!write_copy_host(&output_d, length, offset))
 					return;
 				break;
 			}
 		}
-	}
 	}
 }
 
@@ -422,13 +428,33 @@ snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct h
 	printf("---\nTotal blocks = %d\n", total_blocks);
 	printf("grid.x = %d , block.x = %d\n---\n", grid.x, block.x);
 
+	//calculate int input offset for each GPU thread. Since compressed blocks blocks are not distanced equally
+	//we have to get the starting location of each block.
+	uint8_t **input_currents;
+	uint32_t *input_offsets;
+	checkCudaErrors(cudaMallocManaged(&input_currents, sizeof(uint8_t *) * total_blocks));
+	checkCudaErrors(cudaMallocManaged(&input_offsets, sizeof(uint32_t) * total_blocks));
+
+	int i = 0;
+	while (input->curr < (input->buffer + input->length)) {
+		// Read the compressed block size
+		uint32_t compressed_size = read_uint32(input);
+		input_currents[i] = input->curr;
+		input_offsets[i] = compressed_size;	
+		input->curr += compressed_size;
+		i++;
+		//printf("block %d compressred size = %d\n",i, compressed_size);
+	}
+
 	int device = -1;
   	cudaGetDevice(&device);
+	cudaMemPrefetchAsync(input_currents,sizeof(uint8_t *) * total_blocks , device, NULL);
+	cudaMemPrefetchAsync(input_offsets,sizeof(uint32_t) * total_blocks , device, NULL);
   	cudaMemPrefetchAsync(output->buffer, output->total_size, device, NULL);
 	cudaMemPrefetchAsync(input->buffer, input->total_size, device, NULL);
 
-	//snappy_decompress_kernel<<<grid,block,0>>>(input, output, total_blocks, dblock_size);
-	snappy_decompress_kernel<<<1,1,0>>>(input, output, 1, dblock_size);
+
+	snappy_decompress_kernel<<<grid,block,0>>>(input, output, total_blocks, dblock_size, input_offsets, input_currents);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	return SNAPPY_OK;
