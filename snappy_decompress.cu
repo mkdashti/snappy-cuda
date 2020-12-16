@@ -412,9 +412,24 @@ snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct h
 	dim3 grid(total_blocks);
 	if(runtime->blocks == 0 && runtime->threads_per_block == 0) //only set blocks and threads_per_block if user didn't set them
 	{
-		if (total_blocks >= 1024)
+		if (total_blocks >= 1024 && total_blocks <= 4096)
 		{
 			block.x = total_blocks/512;
+			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		}
+		if (total_blocks > 4096 && total_blocks <= 8192)
+		{
+			block.x = total_blocks/128;
+			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		}
+		if (total_blocks > 8192 && total_blocks < 65536)
+		{
+			block.x = total_blocks/2048;
+			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
+		}
+		if (total_blocks >= 65536)
+		{
+			block.x = total_blocks/8192;
 			grid.x = (unsigned int) ceil(total_blocks * 1.0 / block.x);
 		}
 	}
