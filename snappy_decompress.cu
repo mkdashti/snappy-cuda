@@ -465,7 +465,6 @@ snappy_status snappy_decompress_cuda(struct host_buffer_context *input, struct h
   	cudaGetDevice(&device);
 	cudaMemPrefetchAsync(input_currents,sizeof(uint8_t *) * total_blocks , device, NULL);
 	cudaMemPrefetchAsync(input_offsets,sizeof(uint32_t) * total_blocks , device, NULL);
-  	cudaMemPrefetchAsync(output->buffer, output->total_size, device, NULL);
 	cudaMemPrefetchAsync(input->buffer, input->total_size, device, NULL);
 
 
