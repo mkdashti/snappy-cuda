@@ -694,7 +694,7 @@ snappy_status snappy_compress_host(struct host_buffer_context *input, struct hos
 
 	// Update output length
 	output->length = (output->curr - output->buffer);
-	printf("host output length = %ld\n",output->length);
+	free(table);
 
 	return SNAPPY_OK;
 }
@@ -785,6 +785,7 @@ snappy_status snappy_compress_cuda(struct host_buffer_context *input, struct hos
 	checkCudaErrors(cudaFree(output_offsets));
 	for(int i = 0; i < total_blocks; i++)
 		checkCudaErrors(cudaFree(table[i]));
+	checkCudaErrors(cudaFree(table));
 
 	return SNAPPY_OK;
 }
